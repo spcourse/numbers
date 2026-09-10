@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sieve of Eratosthenes</title>
+
+<style>
+:root {
+  /* ---- palette (from MCS_lect3.pptx) ---------------------------- */
+  --page:          #FFFFFF;
+  --ink:           #1A1A1A;   /* number in an untouched square        */
+  --muted:         #8A8F94;   /* number once it has been crossed off  */
+
+  --cell-bg:       #F0F0F0;   /* untouched square                     */
+  --cell-line:     #1A1A1A;
+
+  --prime-bg:      #E6F2EC;   /* marked as prime                      */
+  --prime-line:    #2E7D57;
+
+  --cursor-bg:     #FBE9E2;   /* where the algorithm is right now     */
+  --cursor-line:   #B8622E;
+
+  --gone-bg:       #FFFFFF;   /* crossed off                          */
+  --gone-line:     #E2E3E5;
+
+  /* ---- geometry (proportions taken from the slides) ------------- */
+  --cell:          min(8vw, 7.6vh);
+  --gap:           calc(var(--cell) * 0.157);
+  --radius:        calc(var(--cell) * 0.088);
+  --line:          2px;       /* square border                       */
+  --cursor-line-w: 3px;       /* the travelling outline              */
+  --digits:        calc(var(--cell) * 0.36);
+  --fade:          70ms;      /* colour change; keep it under MIN_MS  */
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--cell) * 0.5);
+  background: var(--page);
+  font-family: Helvetica, Arial, sans-serif;
+}
+
+#grid {
+  display: grid;
+  gap: var(--gap);
+  /* columns are set from the script, so GRID_N is the single source of truth */
+}
+
+.cell {
+  width: var(--cell);
+  height: var(--cell);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: var(--cell-bg);
+  border: var(--line) solid var(--cell-line);
+  border-radius: var(--radius);
+
+  font-family: "Courier New", Courier, monospace;
+  font-weight: bold;
+  font-size: var(--digits);
+  color: var(--ink);
+
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--fade) ease,
+              border-color     var(--fade) ease,
+              color            var(--fade) ease;
+}
+
+.cell.prime {
+  background: var(--prime-bg);
+  border-color: var(--prime-line);
+  color: var(--prime-line);
+}
+
+.cell.gone {
+  background: var(--gone-bg);
+  border-color: var(--gone-line);
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+/* The cursor wins over every other state, so you can always see where you are.
+   It deliberately leaves text-decoration alone: a square that was already
+   crossed off keeps its line while the cursor passes over it again. */
+.cell.cursor {
+  background: var(--cursor-bg);
+  border-color: var(--cursor-line);
+  color: var(--cursor-line);
+  outline: var(--cursor-line-w) solid var(--cursor-line);
+  outline-offset: 2px;
+}
+
+#hint {
+  font-family: "Courier New", Courier, monospace;
+  font-size: calc(var(--cell) * 0.2);
+  color: var(--muted);
+  letter-spacing: .02em;
+}
+#hint b { font-weight: bold; color: var(--ink); }
+</style>
+</head>
+
+<body>
+  <div id="grid"></div>
+  <div id="hint"></div>
+
+<script>
+/* ------------------------------------------------------------------
+   Tweakables
+   ------------------------------------------------------------------ */
+const STEP_MS   = 300;    // pause on the FIRST square of a walk
+const ACCEL     = 0.9;    // each square waits this fraction of the one before
+                          //   1    = no speed-up, every square gets STEP_MS
+                          //   0.9  = gentle, noticeable after a handful of squares
+                          //   0.75 = steep, at full tilt within about six squares
+const MIN_MS    = 60;     // floor, so a long walk stays watchable instead of
+                          //   collapsing to an instant flicker
+const GRID_N    = 10;     // grid is GRID_N x GRID_N, so numbers 1 .. GRID_N^2
+const SHOW_HINT = true;   // the one muted line under the grid
+/* ------------------------------------------------------------------
+
+   Controls
+     left click            mark as prime
+     right click           cross off every multiple, starting at 2n
+     shift + right click   cross off every multiple, starting at n*n
+     escape                abort a walk in progress
+
+   Refresh the page to start over.
+   ------------------------------------------------------------------ */
+
+const LAST  = GRID_N * GRID_N;
+const grid  = document.getElementById('grid');
+const cells = [];                     // cells[n] is the square for number n
+let busy    = false;                  // a walk is running; ignore clicks
+let aborted = false;
+
+grid.style.gridTemplateColumns = `repeat(${GRID_N}, var(--cell))`;
+
+for (let n = 1; n <= LAST; n++) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.textContent = n;
+  grid.appendChild(cell);
+  cells[n] = cell;
+
+  cell.addEventListener('click', () => {
+    if (cell.classList.contains('gone')) return;
+    if (busy) return;
+    cell.classList.remove('gone');
+    cell.classList.add('prime');
+  });
+
+  cell.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (cell.classList.contains('gone')) return;
+    if (busy) return;
+    walk(n, e.shiftKey ? n * n : 2 * n);
+  });
+}
+cells[1].classList.add('gone');       // 1 is not prime; cross it off up front
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/* Cross off start, start + n, start + 2n, ... with the outline leading the way.
+   The walk sets off at STEP_MS and picks up speed as it goes; every walk starts
+   over at the slow end, so the first few squares are always readable. */
+async function walk(n, start) {
+  busy = true;
+  aborted = false;
+
+  let pause = STEP_MS;
+
+  for (let m = start; m <= LAST; m += n) {
+    if (aborted) break;
+    const cell = cells[m];
+    cell.classList.add('cursor');     // the algorithm is looking at m
+    await sleep(pause);
+    cell.classList.remove('cursor', 'prime');
+    cell.classList.add('gone');       // ... and m is not prime
+    pause = Math.max(MIN_MS, pause * ACCEL);
+  }
+
+  busy = false;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') aborted = true;
+});
+
+if (SHOW_HINT) {
+  document.getElementById('hint').innerHTML =
+    '<b>click</b> prime &nbsp;·&nbsp; ' +
+    '<b>right click</b> cross off multiples &nbsp;·&nbsp; ' +
+    '<b>shift right click</b> start at n²';
+}
+</script>
+</body>
+</html>

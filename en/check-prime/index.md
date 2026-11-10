@@ -1,9 +1,12 @@
-# The thousandth prime
+# Check prime
 
 A prime number is an integer number $$n$$ that can not be divide by any other integer number (other than $$1$$ and $$n$$ itself). Implement a program called `check-prime.py`, that checks if a given number is a prime number.
 
     Enter a number: 7
     7 is a prime number!
+
+    Enter a number: 9
+    9 is not a prime number.
 
 ## Background
 

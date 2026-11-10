@@ -27,8 +27,7 @@ More important is of course if or when you find a number that *isn't* in complia
 * Unless specifically mentioned otherwise, you are only allowed to use the concepts that are discussed in this module.
 For an overview of those concepts have a look [here](/python/en/overview).
 * You are *not* allowed to use the `break`-statement.
-* You are *only* allowed to use the `import math`-statement (but you can solve it without).
-* You are not allowed to use any other `import`-statements.
+* You are *not* allowed to use the `import`-statement.
 
 ## Hints
 
